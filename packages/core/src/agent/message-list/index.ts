@@ -1801,6 +1801,11 @@ export class MessageList {
           }
           return prev;
         }, 0);
+        // Include OpenAI itemId in deduplication key to prevent incorrect merging
+        // of distinct messages that have the same content but different itemIds
+        if (part.providerMetadata?.openai?.itemId) {
+          key += `|${part.providerMetadata.openai.itemId}`;
+        }
       }
       if (part.type === `file`) {
         key += part.data;
