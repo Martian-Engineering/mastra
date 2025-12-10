@@ -216,7 +216,9 @@ export class MastraModelOutput<OUTPUT extends OutputSchema = undefined> extends 
             // Filter out intermediate finish chunks with 'tool-calls' reason
             // These are internal signals that shouldn't reach output processors
 
-            if (chunk.type === 'finish' && chunk.payload?.stepResult?.reason === 'tool-calls') {
+            // Only skip processors for intermediate finish chunks when more steps are coming (isContinued=true)
+            // When isContinued=false (e.g., maxSteps reached), allow processors to run even if reason is 'tool-calls'
+            if (chunk.type === 'finish' && chunk.payload?.stepResult?.reason === 'tool-calls' && chunk.payload?.stepResult?.isContinued) {
               controller.enqueue(chunk);
               return;
             } else {
