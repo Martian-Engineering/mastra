@@ -6,7 +6,7 @@ import { ErrorCategory, ErrorDomain, MastraError } from '../../error';
 import { ChunkFrom } from '../../stream';
 import type { ChunkType, OutputSchema } from '../../stream';
 import type { InferSchemaOutput } from '../../stream/base/schema';
-import type { ToolCallChunk, ToolResultChunk } from '../../stream/types';
+import type { ToolCallChunk, ToolCallPayload, ToolResultChunk, ToolResultPayload } from '../../stream/types';
 import type { Processor } from '../index';
 
 export type { StructuredOutputOptions } from '../../agent/types';
@@ -34,6 +34,8 @@ export class StructuredOutputProcessor<OUTPUT extends OutputSchema> implements P
   private fallbackValue?: InferSchemaOutput<OUTPUT>;
   private isStructuringAgentStreamStarted = false;
   private jsonPromptInjection?: boolean;
+  private pendingStructuring = false;
+  private expectedToolCallIds = new Set<string>();
 
   constructor(options: StructuredOutputOptions<OUTPUT>) {
     if (!options.schema) {
@@ -79,11 +81,59 @@ export class StructuredOutputProcessor<OUTPUT extends OutputSchema> implements P
 
     switch (part.type) {
       case 'finish':
-        // The main stream is finished, intercept it and start the structuring agent stream
-        // - enqueue the structuring agent stream chunks into the main stream
-        // - when the structuring agent stream is finished, enqueue the final chunk into the main stream
+        // Check if there are unmatched tool-calls that need results before structuring
+        if (part.payload?.stepResult?.reason === 'tool-calls') {
+          const toolCalls = streamParts.filter(
+            (p): p is ChunkType & { type: 'tool-call'; payload: ToolCallPayload } => p.type === 'tool-call',
+          );
+          const toolResults = streamParts.filter(
+            (p): p is ChunkType & { type: 'tool-result'; payload: ToolResultPayload } => p.type === 'tool-result',
+          );
+          const toolErrors = streamParts.filter(
+            (p): p is ChunkType & { type: 'tool-error'; payload: { toolCallId: string } } => p.type === 'tool-error',
+          );
 
+          // Find tool-calls without matching results or errors
+          const unmatchedCalls = toolCalls.filter(
+            tc =>
+              !toolResults.some(tr => tr.payload.toolCallId === tc.payload.toolCallId) &&
+              !toolErrors.some(te => te.payload.toolCallId === tc.payload.toolCallId),
+          );
+
+          if (unmatchedCalls.length > 0) {
+            // Defer structuring until tool results arrive
+            this.pendingStructuring = true;
+            this.expectedToolCallIds = new Set(unmatchedCalls.map(tc => tc.payload.toolCallId));
+            return part; // Don't trigger yet
+          }
+        }
+        // No pending tools or reason is 'stop' - trigger immediately
         await this.processAndEmitStructuredOutput(streamParts, controller, abort, tracingContext);
+        return part;
+
+      case 'tool-result':
+        if (this.pendingStructuring && this.expectedToolCallIds.has(part.payload.toolCallId)) {
+          this.expectedToolCallIds.delete(part.payload.toolCallId);
+
+          if (this.expectedToolCallIds.size === 0) {
+            // All expected tool results received - now trigger structuring
+            this.pendingStructuring = false;
+            await this.processAndEmitStructuredOutput(streamParts, controller, abort, tracingContext);
+          }
+        }
+        return part;
+
+      case 'tool-error':
+        // Handle tool errors the same way as tool results
+        if (this.pendingStructuring && this.expectedToolCallIds.has(part.payload.toolCallId)) {
+          this.expectedToolCallIds.delete(part.payload.toolCallId);
+
+          if (this.expectedToolCallIds.size === 0) {
+            // All expected tool calls resolved (some with errors) - trigger structuring
+            this.pendingStructuring = false;
+            await this.processAndEmitStructuredOutput(streamParts, controller, abort, tracingContext);
+          }
+        }
         return part;
 
       default:
