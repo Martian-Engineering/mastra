@@ -540,6 +540,10 @@ export function createLLMExecutionStep<Tools extends ToolSet = ToolSet, OUTPUT e
 
                     inputMessages = await newMessageList.get.all.aiV5.llmPrompt(messageListPromptArgs);
                   }
+                  // Allow prepareStep to inject a system message for this step
+                  if (prepareStepResult.system) {
+                    messageList.addSystem(prepareStepResult.system);
+                  }
                 }
               } catch (error) {
                 console.error('Error in prepareStep callback:', error);
