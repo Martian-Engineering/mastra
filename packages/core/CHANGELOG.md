@@ -1,5 +1,45 @@
 # @mastra/core
 
+## 1.0.0-beta.11
+
+### Minor Changes
+
+- Respect structured outputs for v2 models so tool schemas aren’t stripped ([#11038](https://github.com/mastra-ai/mastra/pull/11038))
+
+### Patch Changes
+
+- Fix type safety for message ordering - restrict `orderBy` to only accept `'createdAt'` field ([#11069](https://github.com/mastra-ai/mastra/pull/11069))
+
+  Messages don't have an `updatedAt` field, but the previous type allowed ordering by it, which would return empty results. This change adds compile-time type safety by making `StorageOrderBy` generic and restricting `StorageListMessagesInput.orderBy` to only accept `'createdAt'`. The API validation schemas have also been updated to reject invalid orderBy values at runtime.
+
+- Loosen tools types in processInputStep / prepareStep. ([#11071](https://github.com/mastra-ai/mastra/pull/11071))
+
+- Added the ability to provide a base path for Mastra Studio. ([#10441](https://github.com/mastra-ai/mastra/pull/10441))
+
+  ```ts
+  import { Mastra } from '@mastra/core';
+
+  export const mastra = new Mastra({
+    server: {
+      studioBase: '/my-mastra-studio',
+    },
+  });
+  ```
+
+  This will make Mastra Studio available at `http://localhost:4111/my-mastra-studio`.
+
+- Expand `processInputStep` processor method and integrate `prepareStep` as a processor ([#10774](https://github.com/mastra-ai/mastra/pull/10774))
+
+  **New Features:**
+  - `prepareStep` callback now runs through the standard `processInputStep` pipeline
+  - Processors can now modify per-step: `model`, `tools`, `toolChoice`, `activeTools`, `messages`, `systemMessages`, `providerOptions`, `modelSettings`, and `structuredOutput`
+  - Processor chaining: each processor receives accumulated state from previous processors
+  - System messages are isolated per-step (reset at start of each step)
+
+  **Breaking Change:**
+  - `prepareStep` messages format changed from AI SDK v5 model messages to `MastraDBMessage` format
+  - Migration: Use `messageList.get.all.aiV5.model()` if you need the old format
+
 ## 1.0.0-beta.10
 
 ### Patch Changes
