@@ -246,34 +246,30 @@ async function processOutputStream<OUTPUT extends OutputSchema = undefined>({
         // Get the providerMetadata from the chunk or runState
         const reasoningProviderMetadata = chunk.payload.providerMetadata ?? runState.state.providerOptions;
 
-        // IMPORTANT: Always add reasoning to the message list if providerMetadata is present,
-        // even when there are no reasoning deltas. This is critical for OpenAI GPT-5 models
-        // (using the Responses API) which require the reasoning item to be present with its
-        // itemId, even when the reasoning content is empty.
-        // See GitHub issue #9005 for more details.
+        // Always add reasoning message to the message list when reasoning-end fires.
+        // This ensures OpenAI models (using the Responses API) always have the reasoning
+        // item present in conversation history, even when empty. Without this, the model
+        // may complain about missing reasoning on subsequent turns.
         const hasReasoningDeltas = runState.state.reasoningDeltas.length > 0;
-        const hasProviderMetadata = reasoningProviderMetadata && Object.keys(reasoningProviderMetadata).length > 0;
 
-        if (hasReasoningDeltas || hasProviderMetadata) {
-          const message: MastraMessageV2 = {
-            id: messageId,
-            role: 'assistant',
-            content: {
-              format: 2,
-              parts: [
-                {
-                  type: 'reasoning' as const,
-                  reasoning: '',
-                  details: hasReasoningDeltas ? [{ type: 'text', text: runState.state.reasoningDeltas.join('') }] : [],
-                  providerMetadata: reasoningProviderMetadata,
-                },
-              ],
-            },
-            createdAt: new Date(),
-          };
+        const message: MastraMessageV2 = {
+          id: messageId,
+          role: 'assistant',
+          content: {
+            format: 2,
+            parts: [
+              {
+                type: 'reasoning' as const,
+                reasoning: '',
+                details: hasReasoningDeltas ? [{ type: 'text', text: runState.state.reasoningDeltas.join('') }] : [],
+                providerMetadata: reasoningProviderMetadata,
+              },
+            ],
+          },
+          createdAt: new Date(),
+        };
 
-          messageList.add(message, 'response');
-        }
+        messageList.add(message, 'response');
 
         // Reset reasoning state
         runState.setState({
